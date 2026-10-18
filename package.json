@@ -1,0 +1,18 @@
+
+{
+  "name": "postgres-schema-migration-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate": "node-pg-migrate",
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down"
+  },
+  "dependencies": {
+    "pg": "^8.0.0"
+  },
+  "devDependencies": {
+    "node-pg-migrate": "^8.0.0"
+  }
+}
