@@ -1,0 +1,87 @@
+
+name: PostgreSQL Migration Pipeline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-schema-migration-lab
+  cancel-in-progress: false
+
+jobs:
+  migration-test:
+    runs-on: [self-hosted, linux, x64, aws-self]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Node.js and npm
+        run: |
+          node --version
+          npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check CI database connection
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" \
+            -v ON_ERROR_STOP=1 \
+            -c "SELECT current_database(), current_user;"
+
+      - name: Reset disposable CI schema
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" \
+            -v ON_ERROR_STOP=1 <<'SQL'
+          DROP SCHEMA IF EXISTS public CASCADE;
+          CREATE SCHEMA public AUTHORIZATION migration_lab_user;
+          SQL
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+        run: npm run migrate:up
+
+      - name: Validate after up
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+        run: node scripts/assert-schema.js after-up
+
+      - name: Roll back one migration
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+        run: npm run migrate:down -- 1
+
+      - name: Validate after down
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+        run: node scripts/assert-schema.js after-down
+
+      - name: Reapply pending migrations
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+        run: npm run migrate:up
+
+      - name: Validate final test schema
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+        run: node scripts/assert-schema.js after-up
+
+      - name: Deploy migrations to lab database
+        if: github.ref == 'refs/heads/main'
+        env:
+          DATABASE_URL: ${{ secrets.LAB_DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" \
+            -v ON_ERROR_STOP=1 \
+            -c "SELECT current_database(), current_user;"
+
+          npm run migrate:up
